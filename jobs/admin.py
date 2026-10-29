@@ -256,7 +256,7 @@ class JobAdmin(HttpsURLFields, admin.ModelAdmin):
 class CompanyAdmin(HttpsURLFields, admin.ModelAdmin):
     list_display = (
         "__str__",
-        "industry",
+        "industry_display",
         "company_size",
         "headquarters",
         "followers",
@@ -306,7 +306,19 @@ class CompanyAdmin(HttpsURLFields, admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(_job_count=Count("jobs"))
+        industry_from_jobs = Subquery(
+            Job.objects.filter(company=OuterRef("pk")).exclude(industries="").values("industries")[:1]
+        )
+        return super().get_queryset(request).annotate(_job_count=Count("jobs"), industry_from_jobs=industry_from_jobs)
+
+    @admin.display(description="Industry", ordering="industry")
+    def industry_display(self, obj):
+        if obj.industry:
+            return obj.industry
+        if obj.industry_from_jobs:
+            # Company page not fetched: the industry LinkedIn shows on the company's postings.
+            return format_html('{} <span style="opacity:.6">(from jobs)</span>', obj.industry_from_jobs)
+        return "—"
 
     @admin.display(description="Jobs", ordering="_job_count")
     def job_count(self, obj):

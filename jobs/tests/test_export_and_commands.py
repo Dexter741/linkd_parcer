@@ -296,3 +296,12 @@ def test_refresh_descriptions_command():
     call_command("refresh_descriptions", stdout=out)
     assert Job.objects.get().description_text == "Use Linux daily"
     assert "Updated 1" in out.getvalue()
+
+
+def test_company_admin_shows_industry_from_jobs(client):
+    User.objects.create_superuser("admin", "a@example.com", "pw")
+    client.login(username="admin", password="pw")
+    bare = Company.objects.create(linkedin_url="https://www.linkedin.com/company/bare/", slug="bare", name="Bare")
+    Job.objects.create(linkedin_id=1, url="https://x/1/", title="t", company=bare, industries="Banking")
+    page = client.get("/admin/jobs/company/").content.decode()
+    assert "Banking" in page and "(from jobs)" in page
