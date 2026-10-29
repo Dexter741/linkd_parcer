@@ -5,7 +5,40 @@ search query (e.g. *Python Developer*) and a country (e.g. *USA*), and lets
 you manage queries, browse results and export them (CSV / Excel) through the
 Django admin.
 
-Stack: Python 3.12+, Django 5.2, PostgreSQL 16, requests + BeautifulSoup/lxml, openpyxl.
+Stack: Python 3.12+, Django 5.2, PostgreSQL 16, requests + BeautifulSoup/lxml, openpyxl, Docker.
+
+## Quick start (Docker)
+
+```bash
+cp .env.example .env                 # set DJANGO_SECRET_KEY, POSTGRES_PASSWORD, DJANGO_ALLOWED_HOSTS
+docker compose up -d --build         # PostgreSQL + admin on http://localhost:8000/admin/
+docker compose run --rm app python manage.py createsuperuser
+
+# add a search query in the admin (Search queries -> Add), or:
+docker compose run --rm app python manage.py shell -c \
+  "from jobs.models import SearchQuery; SearchQuery.objects.get_or_create(keywords='Python Developer', country='United States')"
+
+docker compose --profile scrape up -d    # Search, then Details, in the background
+docker compose logs -f scrape
+
+docker compose run --rm app python manage.py export_jobs output/jobs.xlsx --with-details   # -> ./output/
+```
+
+## Results of the test run
+
+*Python Developer* / *United States*, one office IP, default pacing (2–5 s per request):
+
+| | |
+|---|---|
+| Jobs found by Search | **26 090** (51 states; saturated states split by workplace type) |
+| Jobs with full details | **13 072** (Details stopped at the 10k target; 8 removed by LinkedIn, 0 parse errors) |
+| Companies linked to those jobs | ~5 700; name, LinkedIn URL and industry for every job — full profiles see *Known limitations* |
+| Export | `linkedin_jobs.xlsx` (Jobs + Companies sheets), `linkedin_jobs.csv` |
+
+Two things the live run revealed and the code now handles: LinkedIn answers
+deep pages of a search that was never opened from page 0 with an empty page,
+and it occasionally returns a spurious empty page; both made capped searches
+look small until page 0 was fetched first and empty pages were confirmed.
 
 ## How it works
 
