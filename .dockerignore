@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.pytest_cache
+**/__pycache__
+backups
+output
+probe_html
+staticfiles
+*.csv
+*.xlsx

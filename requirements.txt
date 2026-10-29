@@ -1,0 +1,12 @@
+Django>=5.2,<5.3
+psycopg[binary]>=3.2
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.0
+openpyxl>=3.1
+gunicorn>=23.0
+whitenoise>=6.7
+
+# tests
+pytest>=8.0
+pytest-django>=4.9

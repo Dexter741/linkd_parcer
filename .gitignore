@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+staticfiles/
+*.csv
+*.xlsx
+probe_html/
+backups/

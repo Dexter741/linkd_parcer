@@ -1,0 +1,77 @@
+# Everything in containers:
+#   docker compose up -d --build              database + admin (http://<host>:8000/admin/)
+#   docker compose run --rm app <command>     any management command, e.g. linkedin_probe
+#   docker compose --profile scrape up -d     search, then details (one after the other)
+#   docker compose --profile search|details up -d   one part alone
+# Settings come from .env (see .env.example).
+
+x-app: &app
+  build: .
+  image: linkd-parser
+  env_file: .env
+  environment:
+    POSTGRES_HOST: db
+    POSTGRES_PORT: "5432"
+  volumes:
+    - ./output:/app/output        # exports and saved probe pages land here on the host
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-linkd}
+      POSTGRES_USER: ${POSTGRES_USER:-linkd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-linkd}
+    ports:
+      # Only on the host's loopback: reachable through an SSH tunnel, never from the network.
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-linkd} -d ${POSTGRES_DB:-linkd}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Admin site. Applies migrations on start.
+  web:
+    <<: *app
+    restart: unless-stopped
+    command: sh -c "python manage.py migrate --noinput && exec gunicorn config.wsgi --bind 0.0.0.0:8000 --workers 3 --timeout 300"
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+
+  # For one-off commands: docker compose run --rm app python manage.py ...
+  app:
+    <<: *app
+    profiles: [tools]
+    command: python manage.py help
+
+  # Both parts, one after the other, so one IP never runs both at once:
+  #   docker compose --profile scrape up -d
+  scrape:
+    <<: *app
+    profiles: [scrape]
+    command: >-
+      sh -c "python manage.py scrape_search --all --wait-on-block ${WAIT_ON_BLOCK:-15};
+      exec python manage.py scrape_details --follow --idle-minutes 60 --wait-on-block ${WAIT_ON_BLOCK:-15}"
+
+  # Part 1 alone: docker compose --profile search up -d
+  search:
+    <<: *app
+    profiles: [search]
+    command: python manage.py scrape_search --all --wait-on-block ${WAIT_ON_BLOCK:-15}
+
+  # Part 2 alone (e.g. on another machine): docker compose --profile details up -d
+  details:
+    <<: *app
+    profiles: [details]
+    restart: on-failure
+    command: python manage.py scrape_details --follow --idle-minutes 60 --wait-on-block ${WAIT_ON_BLOCK:-15}
+
+volumes:
+  pgdata:
