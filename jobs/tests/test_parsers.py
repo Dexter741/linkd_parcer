@@ -75,7 +75,9 @@ def test_job_detail():
     assert d.apply_url == "https://careers.acme.example/jobs/123?source=linkedin"
     assert "<li>5+ years of Python</li>" in d.description_html
     assert "Show more" not in d.description_text
-    assert "We build data pipelines in\nPython\nand Django." in d.description_text
+    assert d.description_text == (
+        "About the role\n\nWe build data pipelines in Python and Django.\n\n• 5+ years of Python\n• PostgreSQL"
+    )
     assert d.is_closed is False
 
 
@@ -144,3 +146,16 @@ def test_company_page_falls_back_to_json_ld():
 def test_company_parse_error_on_login_wall():
     with pytest.raises(ParseError):
         parse_company_page("<html><body><h1>Join LinkedIn</h1></body></html>")
+
+
+def test_html_to_text_keeps_inline_words_on_one_line():
+    from jobs.linkedin.parsers import html_to_text
+
+    html = (
+        "<p>Experience using the <strong>Linux</strong> <em>CLI</em>, and <a href='#'>REST APIs</a>.</p>"
+        "<p>Second&nbsp;paragraph<br>new line</p><ul><li>One</li><li><b>Two</b> items</li></ul>"
+    )
+    assert html_to_text(html) == (
+        "Experience using the Linux CLI, and REST APIs.\n\nSecond paragraph\nnew line\n\n• One\n• Two items"
+    )
+    assert html_to_text("") == ""

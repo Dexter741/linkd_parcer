@@ -7,7 +7,7 @@ from django.core.management import call_command
 from openpyxl import load_workbook
 
 from jobs.models import Company, Job, SearchQuery
-from jobs.services.export import EXCEL_CELL_LIMIT, JOB_COLUMNS, write_csv, write_xlsx
+from jobs.services.export import EXCEL_CELL_LIMIT, job_columns, write_csv, write_xlsx
 from jobs.tests.conftest import FakeLinkedIn, make_jobs
 
 pytestmark = pytest.mark.django_db
@@ -43,22 +43,24 @@ def jobs():
     return Job.objects.order_by("linkedin_id")
 
 
-def column(name):
-    return [h for h, _ in JOB_COLUMNS].index(name)
+def column(name, jobs=None):
+    return [c.header for c in job_columns(jobs if jobs is not None else Job.objects.all())].index(name)
 
 
 def test_csv_includes_company_data(jobs):
     out = io.StringIO()
     assert write_csv(jobs, out) == 2
     rows = list(csv.reader(io.StringIO(out.getvalue())))
-    assert rows[0] == [h for h, _ in JOB_COLUMNS]
+    assert rows[0][:4] == ["LinkedIn ID", "Title", "Company", "Company LinkedIn"]
+    assert rows[0][-1] == "Description"  # long text last
     assert rows[1][column("Title")] == "Python Dev"
     assert rows[1][column("Workplace type")] == "Remote"
-    assert rows[1][column("Company industry")] == "Software Development"
-    assert rows[1][column("Company size")] == "51-200 employees"
+    assert rows[1][column("Company size")] == "51-200 employees"  # 1 of 2 jobs: above the fill threshold
     assert rows[1][column("Company website")] == "https://acme.example"
     assert rows[2][column("Title")] == '\'=HYPERLINK("x")'  # formula injection neutralised
-    assert rows[2][column("Company industry")] == ""  # no company linked
+    assert rows[2][column("Company size")] == ""  # no company linked
+    assert "Salary" not in rows[0]  # empty in every row: left out
+    assert "Company founded" not in rows[0]
 
 
 def test_xlsx_has_jobs_and_companies_sheets(jobs):
@@ -72,8 +74,9 @@ def test_xlsx_has_jobs_and_companies_sheets(jobs):
     assert len(rows[2][column("Description")]) == EXCEL_CELL_LIMIT
     companies = list(wb["Companies"].values)
     assert len(companies) == 2
-    assert companies[1][:2] == ("Acme", "https://www.linkedin.com/company/acme/")
-    assert companies[1][-2] == 1  # jobs collected
+    assert companies[0][:4] == ("Name", "LinkedIn", "Industry", "Jobs collected")
+    assert companies[1][:4] == ("Acme", "https://www.linkedin.com/company/acme/", "Software Development", 1)
+    assert wb["Jobs"].freeze_panes == "B2" and wb["Jobs"].auto_filter.ref
 
 
 def test_export_command(jobs, tmp_path):
@@ -260,3 +263,36 @@ def test_wait_on_block_respects_limit_across_pauses(monkeypatch):
     call_command("scrape_details", "--only", "jobs", "--limit", "4", "--wait-on-block", "15",
                  stdout=io.StringIO(), stderr=io.StringIO())  # fmt: skip
     assert Job.objects.filter(detail_status=Job.DetailStatus.DONE).count() == 4
+
+
+def test_export_drops_nearly_empty_company_columns_but_keeps_them_on_companies_sheet():
+    from jobs.services.export import company_columns
+
+    full = Company.objects.create(
+        linkedin_url="https://www.linkedin.com/company/full/", slug="full", name="Full", founded="1999"
+    )
+    bare = Company.objects.create(linkedin_url="https://www.linkedin.com/company/bare/", slug="bare", name="Bare")
+    Job.objects.create(linkedin_id=1, url="https://x/1/", title="a", company=full, industries="IT")
+    for i in range(2, 40):
+        Job.objects.create(linkedin_id=i, url=f"https://x/{i}/", title="b", company=bare, industries="Banking")
+    jobs = Job.objects.all()
+    assert "Company founded" not in [c.header for c in job_columns(jobs)]  # 1 of 39 rows
+    assert "Founded" in [c.header for c in company_columns(jobs)]
+    out = io.BytesIO()
+    write_xlsx(jobs, out)
+    companies = list(load_workbook(io.BytesIO(out.getvalue()))["Companies"].values)
+    assert companies[1][:4] == ("Bare", "https://www.linkedin.com/company/bare/", "Banking", 38)  # industry from jobs
+
+
+def test_refresh_descriptions_command():
+    Job.objects.create(
+        linkedin_id=1,
+        url="https://x/1/",
+        title="t",
+        description_html="<p>Use <strong>Linux</strong> daily</p>",
+        description_text="Use\nLinux\ndaily",
+    )
+    out = io.StringIO()
+    call_command("refresh_descriptions", stdout=out)
+    assert Job.objects.get().description_text == "Use Linux daily"
+    assert "Updated 1" in out.getvalue()

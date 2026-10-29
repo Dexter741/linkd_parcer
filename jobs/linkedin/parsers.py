@@ -109,6 +109,29 @@ def _text(node: Tag | None) -> str:
     return " ".join(node.get_text(" ", strip=True).split())
 
 
+BLOCK_TAGS = ["p", "div", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "section"]
+
+
+def html_to_text(html: str) -> str:
+    """Readable plain text: line breaks only where the HTML has blocks, line
+    breaks or list items, never around inline tags like <strong> or <a>."""
+    if not html.strip():
+        return ""
+    soup = _soup(html)
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    for li in soup.find_all("li"):
+        li.insert_before("\n• ")
+    for tag in soup.find_all(BLOCK_TAGS):
+        tag.insert_before("\n")
+        tag.insert_after("\n")
+    lines = [" ".join(line.split()) for line in soup.get_text().split("\n")]
+    text = "\n".join(lines)
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+    return text.strip()
+
+
 def _parse_date(value: str | None) -> date | None:
     try:
         return date.fromisoformat((value or "").strip())
@@ -185,7 +208,7 @@ def parse_job_detail(html: str) -> JobDetail:
             apply_url = _unwrap_redirect(html_lib.unescape(match.group(1)))
 
     description_html = description.decode_contents().strip() if description else ""
-    description_text = description.get_text("\n", strip=True) if description else ""
+    description_text = html_to_text(description_html)
 
     return JobDetail(
         title=title,

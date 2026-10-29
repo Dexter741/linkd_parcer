@@ -183,6 +183,12 @@ class Company(DetailQueue):
     def __str__(self):
         return self.name or self.slug
 
+    @property
+    def industry_or_jobs(self) -> str:
+        """The company's industry, or, if its page was not fetched, the industry
+        LinkedIn shows on its job postings (`industry_from_jobs` annotation)."""
+        return self.industry or getattr(self, "industry_from_jobs", "") or ""
+
 
 class Job(DetailQueue):
     """A LinkedIn job posting. Card fields come from search, the rest from the detail stage."""
